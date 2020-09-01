@@ -9,6 +9,7 @@ import random
 
 SEED = 13
 random.seed(SEED)
+INPUT_SHAPE = (128, 128, 3)
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -30,13 +31,15 @@ def get_model(shape):
     return model
 
 def preprocessing(path, label):
-    img = tf.io.decode_and_crop_jpeg(tf.io.read_file(path), [60, 0, 80, 320])
+    img = tf.io.decode_and_crop_jpeg(tf.io.read_file(path), [80, 0, 60, 320], channels=3)
+    img = tf.image.resize(img, [INPUT_SHAPE[0], INPUT_SHAPE[1]])
     img = tf.image.random_brightness(img, 0.2)
     if random.randint(0,1) == 0:
         img = tf.image.flip_left_right(img)
         label = -label
     img = tf.image.random_contrast(img, 0.2, 0.5)
-    return img/255.0, label
+    img = tf.cast(img, tf.float32) / 255.0 - 0.5
+    return img, label
 
 def load_data():
     d = pd.read_csv('driving_log.csv')[['center', 'steering']]
@@ -45,23 +48,22 @@ def load_data():
 
 def show(ds):
     sample = next(iter(ds))
-    print(sample[1])
+    print(sample[0], sample[1])
     plt.figure()
     plt.imshow(sample[0])
     plt.axis('off')
 
-def train():
-    model = get_model((80, 320, 3))
+def train(ds):
+    model = get_model(INPUT_SHAPE)
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=1e-2), 
+        optimizer=optimizers.Adam(learning_rate=1e-4), 
         loss='mean_squared_error',
-        metrics=['acc']
     )
-    ds = load_data()
-    model.fit(ds.prefetch(AUTOTUNE).batch(64), epochs=2)
-    for i in range(10):
-        predict(model, ds)
+    model.fit(ds.prefetch(AUTOTUNE).batch(64), epochs=5)
+    return model
 
 def predict(model, ds):
-    sample = next(iter(ds))
-    print(model.predict([sample[0]])[0], ', ', sample[1])
+    it = iter(ds)
+    for i in range(10):
+        sample = next(it)
+        print(tf.squeeze(model.predict(tf.expand_dims(sample[0], axis=0))).numpy(), ', ', sample[1].numpy())
